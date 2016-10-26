@@ -134,6 +134,7 @@ static int parse_user_tokens(shadowvpn_args_t *args, char *value) {
     }
     value++;
   }
+  logf("args->user_tokens_len = %d", len);
   args->user_tokens_len = len;
   args->user_tokens = calloc(len, 8);
   bzero(args->user_tokens, 8 * len);

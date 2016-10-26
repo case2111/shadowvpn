@@ -69,6 +69,16 @@ extern int verbose_mode;
 #define debugf(s...)
 #endif
 
+
+#define NIPQUAD(addr) \
+((unsigned char *)&addr)[0], \
+((unsigned char *)&addr)[1], \
+((unsigned char *)&addr)[2], \
+((unsigned char *)&addr)[3]
+
+#define NIPQUAD_FMT "%u.%u.%u.%u"
+
+
 void log_timestamp(FILE *out);
 void perror_timestamp(const char *msg, const char *file, int line);
 void print_hex_memory(void *mem, size_t len);

@@ -140,6 +140,7 @@ int nat_fix_upstream(nat_ctx_t *ctx, unsigned char *buf, size_t buflen,
     return -1;
   }
   ipv4_hdr_t *iphdr = (ipv4_hdr_t *)(buf + SHADOWVPN_USERTOKEN_LEN);
+  logf("upstream nat before, src=" NIPQUAD_FMT "dst=" NIPQUAD_FMT, NIPQUAD(iphdr->saddr), NIPQUAD(iphdr->daddr));
   if ((iphdr->ver & 0xf0) != 0x40) {
     // check header, currently IPv4 only
     // bypass IPv6
@@ -190,6 +191,7 @@ int nat_fix_upstream(nat_ctx_t *ctx, unsigned char *buf, size_t buflen,
       ADJUST_CHECKSUM(acc, udphdr->checksum);
     }
   }
+  logf("upstream nat afer, src=" NIPQUAD_FMT "dst=" NIPQUAD_FMT, NIPQUAD(iphdr->saddr), NIPQUAD(iphdr->daddr));
   return 0;
 }
 

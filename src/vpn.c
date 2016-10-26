@@ -557,6 +557,7 @@ int vpn_run(vpn_ctx_t *ctx) {
                     &temp_remote_addrlen);
         tmp_addr = (struct sockaddr_in *)&temp_remote_addr;
         logf("recvfrom %ld byte from " NIPQUAD_FMT, r, NIPQUAD(tmp_addr->sin_addr.s_addr));
+        logf("vpn mode = %d", ctx->args->mode);
         if (r == -1) 
         {
           if (errno == EAGAIN || errno == EWOULDBLOCK) 
@@ -593,16 +594,19 @@ int vpn_run(vpn_ctx_t *ctx) {
             memcpy(ctx->remote_addrp, &temp_remote_addr, temp_remote_addrlen);
             ctx->remote_addrlen = temp_remote_addrlen;
           }
+          logf("usertoken_len = %d", usertoken_len);
           if (usertoken_len) 
           {
             if (ctx->args->mode == SHADOWVPN_MODE_SERVER) 
             {
+              logf("begin do NAT for upstream");
               // do NAT for upstream
               if (-1 == nat_fix_upstream(ctx->nat_ctx,
                                          ctx->tun_buf + SHADOWVPN_ZERO_BYTES,
                                          r - SHADOWVPN_OVERHEAD_LEN,
                                          ctx->remote_addrp, ctx->remote_addrlen)) 
               {
+              	errf("do NAT for upstream");
                 continue;
               }
             }
