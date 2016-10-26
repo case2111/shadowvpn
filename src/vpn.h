@@ -26,6 +26,17 @@
 #include "args.h"
 #include "nat.h"
 
+#define NIPQUAD(addr) \
+((unsigned char *)&addr)[0], \
+((unsigned char *)&addr)[1], \
+((unsigned char *)&addr)[2], \
+((unsigned char *)&addr)[3]
+
+#define NIPQUAD_FMT "%u.%u.%u.%u"
+
+
+
+
 typedef struct {
   int running;
   int nsock;

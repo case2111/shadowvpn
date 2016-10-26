@@ -78,11 +78,11 @@
 #undef EWOULDBLOCK
 #undef EAGAIN
 #undef EINTR
+
+#define errno WSAGetLastError()
 #undef ENETDOWN
 #undef ENETUNREACH
 #undef EMSGSIZE
-
-#define errno WSAGetLastError()
 #define EWOULDBLOCK WSAEWOULDBLOCK
 #define EAGAIN WSAEWOULDBLOCK
 #define EINTR WSAEINTR
@@ -410,6 +410,8 @@ int vpn_run(vpn_ctx_t *ctx) {
   int max_fd = 0, i;
   ssize_t r;
   size_t usertoken_len = 0;
+  struct sockaddr_in *tmp_addr;
+  
   if (ctx->running) {
     errf("can not start, already running");
     return -1;
@@ -553,7 +555,8 @@ int vpn_run(vpn_ctx_t *ctx) {
                     SHADOWVPN_OVERHEAD_LEN + usertoken_len + ctx->args->mtu, 0,
                     (struct sockaddr *)&temp_remote_addr,
                     &temp_remote_addrlen);
-        logf("recvfrom %ld byte", r);
+        tmp_addr = (struct sockaddr_in *)&temp_remote_addr;
+        logf("recvfrom %ld byte from " NIPQUAD_FMT, r, NIPQUAD(tmp_addr->sin_addr.s_addr));
         if (r == -1) 
         {
           if (errno == EAGAIN || errno == EWOULDBLOCK) 
