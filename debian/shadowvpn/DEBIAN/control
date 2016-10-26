@@ -1,0 +1,10 @@
+Package: shadowvpn
+Version: 0.1.7-1
+Architecture: amd64
+Maintainer: clowwindy <clowwindy42@gmail.com>
+Installed-Size: 221
+Depends: libc6 (>= 2.14), iproute, iptables
+Section: net
+Priority: extra
+Homepage: https://github.com/clowwindy/ShadowVPN
+Description: A fast, safe VPN based on libsodium

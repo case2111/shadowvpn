@@ -1,0 +1,8 @@
+/etc/default/shadowvpn
+/etc/init.d/shadowvpn
+/etc/shadowvpn/client.conf
+/etc/shadowvpn/client_down.sh
+/etc/shadowvpn/client_up.sh
+/etc/shadowvpn/server.conf
+/etc/shadowvpn/server_down.sh
+/etc/shadowvpn/server_up.sh
