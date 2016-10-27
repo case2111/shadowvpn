@@ -52,22 +52,24 @@ end
 def get_domain_ip
 	domain_fd = File.read("result.yaml")
 	domain_yaml = YAML.load(domain_fd)
-	ip_arry = []
+	ip_net_dic = {}
 	ip_dic = {}
 	domain_yaml.each do |dom_dic|
 		# puts dom_dic
 		puts dom_dic[:domian]
 		dom_dic[:ip].each do |ip|
-			ip_arry << ip
+			net=`ipcalc #{ip}/24|grep Network|awk '{print $2}'`.chomp
+			ip_net_dic[net] ||= []
+			ip_net_dic[net] << ip
 		end
 	end
-	ip_arry
+	ip_net_dic.keys
 end
 
 def route_add
 	ips = get_domain_ip
 	ips.each do |ip|
-		`route add -host #{ip} dev tun0`
+		`ip route add #{ip} dev tun9`
 		puts "add route #{ip} is done"
 	end
 end
@@ -75,7 +77,7 @@ end
 def route_del
 	ips = get_domain_ip
 	ips.each do |ip|
-		`route del -host #{ip} dev tun0`
+		`ip route del #{ip} dev tun9`
 		puts "del route #{ip} is done"
 	end
 end
