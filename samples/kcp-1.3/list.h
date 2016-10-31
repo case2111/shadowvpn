@@ -6,6 +6,8 @@
 // #include <linux/poison.h>
 // #include <linux/const.h>
 // #include <linux/kernel.h>
+#include <stdio.h>
+#include <stdbool.h>
 
 /*
  * Simple doubly linked list implementation.
@@ -63,7 +65,7 @@ struct hlist_node {
 #define LIST_POISON2  ((void *) 0x200 + POISON_POINTER_DELTA)
 
 
-static inline hash_func(const char *key, int maxSize)
+static inline unsigned int hash_func(const char *key, int maxSize)
 {
 	unsigned int hashVal = 0;
 	while(*key != '\0')
@@ -737,8 +739,7 @@ static inline bool hlist_fake(struct hlist_node *h)
  * Check whether the node is the only node of the head without
  * accessing head:
  */
-static inline bool
-hlist_is_singular_node(struct hlist_node *n, struct hlist_head *h)
+static inline bool hlist_is_singular_node(struct hlist_node *n, struct hlist_head *h)
 {
 	return !n->next && n->pprev == &h->first;
 }
