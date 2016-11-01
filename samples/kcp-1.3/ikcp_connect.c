@@ -1,8 +1,11 @@
 #include "ikcp_connect.h"
+#include <pthread.h>
 
 static CON_KCP ikcp_con;
 static struct hlist_head c_table[DEFAULT_HASH_SIZE];
 static pthread_mutex_t mutext = PTHREAD_MUTEX_INITIALIZER;
+static pthread_t p_id;
+#define KCP_OUTTIME (5*60)
 
 
 int hex_dump(void *msg, int msg_len)
@@ -40,6 +43,75 @@ int hex_dump(void *msg, int msg_len)
     return 0;
 }
 
+static void table_maintain_kcp(struct hlist_head *table_head)
+{
+	for(int i = 0; i < DEFAULT_HASH_SIZE; i++)
+	{
+		if(!hlist_empty(&table_head[i]))
+		{
+			struct hlist_node  *n;
+			H_NODE *kcp_node;
+			unsigned int timestamp = time(NULL);
+			hlist_for_each_entry_safe(kcp_node, n, &table_head[i], node)
+			{
+				if((timestamp - kcp_node->timeval) > 15 * 60)
+				{
+					pthread_mutex_lock(&mutext);
+					ikcp_release(kcp_node->kcp);
+					pthread_mutex_unlock(&mutext);
+					hlist_del(&kcp_node->node);
+					free(kcp_node);
+				}
+			}
+		}
+	}
+}
+
+static void *thread_ikcp_update_server(void *arg)
+{
+	struct hlist_node *n;
+	H_NODE *kcp_node;
+	int len = 0;
+	unsigned int counter = 0;
+	unsigned int frequence = 10*1000*2;
+	unsigned int maintain_time = 1000*1000*60*5;
+	unsigned int maintain_freq = maintain_time/frequence;
+	while(1)
+	{
+		unsigned int current = iclock();
+		for(int i = 0; i< DEFAULT_HASH_SIZE; i++)
+		{
+			if(hlist_empty(&c_table[i]))
+			{
+				continue;
+			}
+			hlist_for_each_entry_safe(kcp_node, n, &c_table[i], node)
+			{
+				pthread_mutex_lock(&mutext);
+				ikcp_update(kcp_node->kcp, current);
+				pthread_mutex_unlock(&mutext);
+			}
+		}
+		usleep(frequence);
+		counter++;
+		if(counter > maintain_freq)
+		{
+				table_maintain_kcp(&c_table);
+		}
+	}
+}
+
+//universal func
+static int send_connect_hello(int sock, struct sockaddr_in *addr, int flag)
+{
+    MSG_HEAD head;
+    head.cmd = flag;
+    head.u_id = get_table_index(addr);
+    int ret = sendto(ikcp_con.fd_socket, &head, sizeof(head), 0, (struct sockaddr *)addr, sizeof(struct sockaddr));
+    DEBUG("send hello succcess\n");
+    return ret;
+}
+
 static int table_init(struct hlist_head *table_head)
 {
 	for(int i =0; i < DEFAULT_HASH_SIZE; i++)
@@ -61,8 +133,9 @@ int init_ikcp_connect_server(CON_KCP *ikcp_c)
     ikcp_con.fd_socket = ikcp_c->fd_socket;
     ikcp_con.u_id = ikcp_c->u_id;
     memcpy(&ikcp_con.addr, &ikcp_c->addr, sizeof(struct sockaddr_in));
-	table_init(&c_table);
-	return 0;
+		table_init(&c_table);
+		pthread_create(&p_id, NULL, thread_ikcp_update_server, NULL);
+		return 0;
 }
 
 
@@ -126,29 +199,7 @@ static int table_add_kcp(H_NODE *node, struct hlist_head *table_head)
 	return hash;
 }
 
-int table_maintain_kcp(struct hlist_head *table_head)
-{
-	for(int i = 0; i < DEFAULT_HASH_SIZE; i++)
-	{
-		if(!hlist_empty(&table_head[i]))
-		{
-			struct hlist_node  *n;
-			H_NODE *kcp_node;
-			unsigned int timestamp = time(NULL);
-			hlist_for_each_entry_safe(kcp_node, n, &table_head[i], node)
-			{
-				if((timestamp - kcp_node->timeval) > 15 * 60)
-				{
-					ikcp_release(kcp_node->kcp);
-					hlist_del(&kcp_node->node);
-					free(kcp_node);
-				}
-			}
-		}
-	}
-}
-
-int create_then_add_node(struct sockaddr_in *addr, struct hlist_head *table_head)
+static int create_then_add_node(struct sockaddr_in *addr, struct hlist_head *table_head)
 {
 	H_NODE t_node;
 	int ret = 0;
@@ -173,69 +224,60 @@ int table_ikcp_input(struct hlist_head *table_head, REV_MSG *rev_msg)
 			break;
 		}
 	}
-
+	return 0;
 }
-
-int input_ikcp_msg_handle_server(REV_MSG *rev_msg)
+int check_handsharke_hello_msg_server(REV_MSG *rev_msg)
 {
-	int ret = -1;
+	int ret = 1;
 	if(rev_msg->len < 24)
 	{
 		MSG_HEAD *head = (MSG_HEAD *)rev_msg->msg;
-		switch(head->cmd)
+		if(head->cmd == CON_HELLO)
 		{
-			case CON_HELLO:
+			unsigned hash = get_table_index(rev_msg->addr);
+			if(!hlist_empty(&c_table[hash]))
 			{
-				unsigned int u_id = create_then_add_node(rev_msg->addr, c_table);
-				if(u_id > 0)
+				struct hlist_node *n;
+				H_NODE *kcp_node;
+				unsigned int current = time(NULL);
+				hlist_for_each_entry_safe(kcp_node, n, &c_table[hash], node)
 				{
-					MSG_HEAD echo_msg;
-					echo_msg.u_id = u_id;
-					echo_msg.cmd = CON_OK;
-					ret = sendto(ikcp_con.fd_socket, &echo_msg, sizeof(echo_msg), 0, (struct sockaddr *)rev_msg->addr, sizeof(struct sockaddr));
-					DEBUG("recv hello, u_id = %u,send ok success\n", u_id);
+					if(rev_msg->addr->sin_addr.s_addr == kcp_node->addr.sin_addr.s_addr && \
+					   rev_msg->addr->sin_port == kcp_node->addr.sin_port)
+					{
+						if((current - kcp_node->timeval) < 10)
+						{
+							send_connect_hello(ikcp_con.fd_socket, rev_msg->addr, CON_OK);
+							return 0;
+						}
+						else
+						{
+							break;
+						}
+					}
 				}
-				else
-				{
-					DEBUG("add node failed");
-					ret = -1;
-				}
-				break;
 			}
-			case CON_RESET:
+			unsigned int u_id = create_then_add_node(rev_msg->addr, c_table);
+			if(u_id > 0)
 			{
-				break;
+				send_connect_hello(ikcp_con.fd_socket, rev_msg->addr, CON_OK);
+				DEBUG("recv hello, u_id = %u,send ok success\n", u_id);
+				return 0;
 			}
-			case CON_OK:
+			else
 			{
-				break;
-			}
-			default:
-			{
-				DEBUG("error cmd %d\n", head->cmd);
+				DEBUG("add node failed");
 				ret = -1;
 			}
 		}
-	}
-	else
-	{
-		unsigned int hash = get_table_index(rev_msg->addr);
-		struct hlist_node *n;
-		H_NODE *kcp_node;
-		char msg_buffer[MAX_MSG_SIZE] = {0};
-		hlist_for_each_entry_safe(kcp_node, n, &c_table[hash], node)
+		else
 		{
-			if(rev_msg->addr->sin_addr.s_addr == kcp_node->addr.sin_addr.s_addr && \
-			   rev_msg->addr->sin_port == kcp_node->addr.sin_port)
-		   {
-			//    memcpy(msg_buffer, rev_msg->addr, sizeof(struct sockaddr_in));
-			//    memcpy(&msg_buffer[sizeof(struct sockaddr_in)], rev_msg->msg, rev_msg->len);
-			   ret = ikcp_input(kcp_node->kcp, rev_msg->msg, rev_msg->len);
-			   break;
-		   }
+			DEBUG("error cmd %d\n", head->cmd);
+			send_connect_hello(ikcp_con.fd_socket, rev_msg->addr, CON_RESET);
+			ret = -1;
 		}
 	}
-	return ret;
+		return ret;
 }
 
 int send_ikcp_msg_handle_server(SEND_MSG *msg, struct sockaddr_in *addr)
@@ -249,34 +291,70 @@ int send_ikcp_msg_handle_server(SEND_MSG *msg, struct sockaddr_in *addr)
 		if(addr->sin_addr.s_addr == kcp_node->addr.sin_addr.s_addr && \
 		   addr->sin_port == kcp_node->addr.sin_port)
 		{
+			pthread_mutex_lock(&mutext);
 			ret = ikcp_send(kcp_node->kcp, msg->msg, msg->len);
+			pthread_mutex_unlock(&mutext);
 		}
 	}
 	return ret;
 }
 
-int recv_ikcp_msg_handle_server(void)
+static int get_ikcp_msg_handle_server(REV_MSG *rev_msg)
 {
-	char tmp_buffer[MAX_MSG_SIZE] = {0};
-	struct sockaddr_in *tmp_addr = NULL;
 	struct hlist_node *n;
 	H_NODE *kcp_node;
-	int len = 0;
-	for(int i = 0; i< DEFAULT_HASH_SIZE; i++)
+	unsigned int current = time(NULL);
+	static char msg_buffer[MAX_MSG_SIZE] = {0};
+	int ret = 0;
+	unsigned int hash = get_table_index(rev_msg->addr);
+	hlist_for_each_entry_safe(kcp_node, n, &c_table[hash], node)
 	{
-		if(hlist_empty(&c_table[i]))
-		{
-			continue;
-		}
-		hlist_for_each_entry_safe(kcp_node, n, &c_table[i], node)
-		{
-			len = ikcp_recv(kcp_node->kcp, tmp_buffer, MAX_MSG_SIZE);
-			if(len > 0)
+		if(rev_msg->addr->sin_addr.s_addr == kcp_node->addr.sin_addr.s_addr && \
+			rev_msg->addr->sin_port == kcp_node->addr.sin_port)
 			{
-				DEBUG("%s %u say: %s, len = %d\n", inet_ntoa(kcp_node->addr.sin_addr), ntohs(kcp_node->addr.sin_port), tmp_buffer, len);
-				ikcp_send(kcp_node->kcp, tmp_buffer, len);
+				if(current - kcp_node->timeval >= KCP_OUTTIME)
+				{
+					send_connect_hello(ikcp_con.fd_socket, &kcp_node->addr, CON_RESET);
+					break;
+				}
+				kcp_node->timeval = current;
+				pthread_mutex_lock(&mutext);
+				ikcp_input(kcp_node->kcp, rev_msg->msg, rev_msg->len);
+				ret = ikcp_recv(kcp_node->kcp, msg_buffer, MAX_MSG_SIZE);
+				pthread_mutex_unlock(&mutext);
+				if(ret > 0)
+				{
+					if(ikcp_con.data_handle != NULL)
+					{
+							ikcp_con.data_handle(msg_buffer, ret, rev_msg->addr);
+					}
+				}
+				break;
 			}
 		}
+		return ret;
+}
+
+int recv_ikcp_msg_handle_server(void)
+{
+	char rev_buffer[MAX_MSG_SIZE] = {0};
+	int len = 0;
+	struct sockaddr_in client_addr;
+	REV_MSG s_recv;
+	len = recvfrom(ikcp_con.fd_socket, rev_buffer, sizeof(rev_buffer), NULL, (struct sockaddr *)&client_addr, sizeof(struct sockaddr));
+	s_recv.len = len;
+	s_recv.msg = rev_buffer;
+	s_recv.addr = &client_addr;
+	if(len > 0)
+	{
+		if(check_handsharke_hello_msg_server(&s_recv) >= 0)
+		{
+			get_ikcp_msg_handle_server(&s_recv);
+		}
+	}
+	else
+	{
+		// TODO process error
 	}
 	return len;
 }
@@ -291,10 +369,6 @@ int input_ikcp_msg_handle(REV_MSG *rev_msg)
 		MSG_HEAD *head = (MSG_HEAD *)msg;
 		switch(head->cmd)
 		{
-			case CON_HELLO:
-			{
-				break;
-			}
 			case CON_OK:
 			{
 
@@ -305,9 +379,19 @@ int input_ikcp_msg_handle(REV_MSG *rev_msg)
 			}
 			case CON_RESET:
 			{
-				ikcp_release(ikcp_con.kcp);
+				pthread_mutex_lock(&mutext);
+				if(ikcp_con.kcp)
+				{
+					ikcp_release(ikcp_con.kcp);
+				}
+				pthread_mutex_unlock(&mutext);
 				ikcp_con.kcp = NULL;
-                DEBUG("receive reset success, release ikcp connection");
+        DEBUG("receive reset success, release ikcp connection");
+			}
+			default:
+			{
+				DEBUG("unkonw cmd %d", head->cmd);
+				break;
 			}
 		}
 	}
@@ -319,15 +403,6 @@ int input_ikcp_msg_handle(REV_MSG *rev_msg)
 	return 0;
 }
 
-int send_connect_hello(int sock, struct sockaddr_in *addr, int flag)
-{
-    MSG_HEAD head;
-    head.cmd = flag;
-    head.u_id = 0;
-    int ret = sendto(ikcp_con.fd_socket, &head, sizeof(head), 0, (struct sockaddr *)&ikcp_con.addr, sizeof(struct sockaddr));
-    DEBUG("send hello succcess\n");
-    return ret;
-}
 
 int send_ikcp_msg_handle(SEND_MSG *msg, int flag)
 {
@@ -382,10 +457,6 @@ int ikcp_connect_say_hello()
 			MSG_HEAD *head = (MSG_HEAD *)t_buffer;
 			switch(head->cmd)
 			{
-				case CON_HELLO:
-				{
-					break;
-				}
 				case CON_OK:
 				{
 
@@ -402,32 +473,12 @@ int ikcp_connect_say_hello()
 					DEBUG("receive reset success, release ikcp connection");
 					return CON_RESET;
 				}
+				default:
+				{
+					DEBUG("unkonw hello command %d", head->cmd);
+					break;
+				}
 			}
 		}
-	}
-}
-
-void *thread_ikcp_update_server(void *arg)
-{
-	struct hlist_node *n;
-	H_NODE *kcp_node;
-	int len = 0;
-	while(1)
-	{
-		unsigned int current = iclock();
-		for(int i = 0; i< DEFAULT_HASH_SIZE; i++)
-		{
-			if(hlist_empty(&c_table[i]))
-			{
-				continue;
-			}
-			hlist_for_each_entry_safe(kcp_node, n, &c_table[i], node)
-			{
-				pthread_mutex_lock(&mutext);
-				ikcp_update(kcp_node->kcp, current);
-				pthread_mutex_unlock(&mutext);
-			}
-		}
-		usleep(20*1000);
 	}
 }

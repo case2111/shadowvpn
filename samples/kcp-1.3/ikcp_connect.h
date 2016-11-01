@@ -2,7 +2,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
-// #include <sys/socket.h>
+#include <sys/socket.h>
 #include <netinet/in.h>
 // #include <arpa/inet.h>
 #include <sys/time.h>
@@ -29,6 +29,7 @@ typedef struct __CON_KCP__
 	int u_id;
 	ikcpcb *kcp;
 	struct sockaddr addr;
+	int (*data_handle)(char *buf, int len, struct sockaddr_in *addr);
 } CON_KCP;
 
 typedef struct __NODE__
@@ -69,8 +70,6 @@ static inline IUINT32 iclock()
 	return (IUINT32)(value & 0xfffffffful);
 };
 
-// extern CON_KCP ikcp_con;
-//extern struct hlist_head c_table[];
 
 int init_ikcp_connect(CON_KCP *ikcp_c);
 
@@ -80,13 +79,7 @@ int hex_dump(void *msg, int msg_len);
 
 unsigned int get_table_index(struct sockaddr_in *addr);
 
-int table_maintain_kcp(struct hlist_head *table_head);
-
-int create_then_add_node(struct sockaddr_in *addr, struct hlist_head *table_head);
-
 int table_ikcp_input(struct hlist_head *table_head, REV_MSG *rev_msg);
-
-int input_ikcp_msg_handle_server(REV_MSG *rev_msg);
 
 int send_ikcp_msg_handle_server(SEND_MSG *msg, struct sockaddr_in *addr);
 
