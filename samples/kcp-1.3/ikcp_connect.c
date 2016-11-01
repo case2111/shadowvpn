@@ -11,36 +11,36 @@ static pthread_t p_id;
 int hex_dump(void *msg, int msg_len)
 {
 	int  i;
-    char  hexstr[49], ascstr[17], buf[3];
-    unsigned char  b, dumpstr = 0;
-    char *pMsg = msg;
-    memset (hexstr, ' ', 48); hexstr[48] = '\0';
-    memset (ascstr, ' ', 16); ascstr[16] = '\0';
+	char  hexstr[49], ascstr[17], buf[3];
+	unsigned char  b, dumpstr = 0;
+	char *pMsg = msg;
+	memset (hexstr, ' ', 48); hexstr[48] = '\0';
+	memset (ascstr, ' ', 16); ascstr[16] = '\0';
 
-    printf ("\n");
-    printf ("HEX                                              ASCII\n");
+	printf ("\n");
+	printf ("HEX                                              ASCII\n");
 
-    for (i = 0; i < msg_len; i++)
-    {
-       b = pMsg[i];
-       sprintf (buf, "%02x", b);
-       hexstr[i%16*3]   = buf[0];
-       hexstr[i%16*3+1] = buf[1];
-       hexstr[i%16*3+2] = ' ';
-       ascstr[i%16] = (b > 31 && b < 128) ? b : '.';
-       if ((dumpstr = ((i + 1) % 16 == 0)) != 0)
-       {
-          printf ("%48s %16s\n", hexstr, ascstr);
-          if (i < (msg_len - 1))
-          {
-             memset (hexstr, ' ', 48);
-             memset (ascstr, ' ', 16);
-          }
-       }
-    }
-    if (!dumpstr)
-    	printf ("%48s %16s\n", hexstr, ascstr);
-    return 0;
+	for (i = 0; i < msg_len; i++)
+	{
+		b = pMsg[i];
+		sprintf (buf, "%02x", b);
+		hexstr[i%16*3]   = buf[0];
+		hexstr[i%16*3+1] = buf[1];
+		hexstr[i%16*3+2] = ' ';
+		ascstr[i%16] = (b > 31 && b < 128) ? b : '.';
+		if ((dumpstr = ((i + 1) % 16 == 0)) != 0)
+		{
+			printf ("%48s %16s\n", hexstr, ascstr);
+			if (i < (msg_len - 1))
+			{
+				memset (hexstr, ' ', 48);
+				memset (ascstr, ' ', 16);
+			}
+		}
+	}
+	if (!dumpstr)
+	printf ("%48s %16s\n", hexstr, ascstr);
+	return 0;
 }
 
 static void table_maintain_kcp(struct hlist_head *table_head)
@@ -459,7 +459,6 @@ int ikcp_connect_say_hello()
 			{
 				case CON_OK:
 				{
-
 					ikcp_con.u_id = head->u_id;
 					ikcp_con.kcp = create_kcp_instance_use_id(&ikcp_con.addr, ikcp_con.u_id);
 					DEBUG("receive ok success, hanshake over, u_id=%u\n", head->u_id);
